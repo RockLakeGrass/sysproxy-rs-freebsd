@@ -479,11 +479,14 @@ fn get_proxies_by_service_uuid(
             CFString::from_static_string("Proxies").as_concrete_TypeRef(),
         );
         if protocol_ref.is_null() {
+            CFRelease(service_ref);
             return Err(Error::SCPreferences);
         }
 
         let config = SCNetworkProtocolGetConfiguration(protocol_ref);
         if config.is_null() {
+            CFRelease(service_ref);
+            CFRelease(protocol_ref);
             return Err(Error::SCPreferences);
         }
 
