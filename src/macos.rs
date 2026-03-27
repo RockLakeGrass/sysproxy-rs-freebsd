@@ -129,10 +129,10 @@ impl Sysproxy {
         debug!("Setting SOCKS proxy");
         self.set_socks(service)?;
 
-        debug!("Setting HTTP proxy");
+        debug!("Setting HTTPS proxy");
         self.set_https(service)?;
 
-        debug!("Setting HTTPS proxy");
+        debug!("Setting HTTP proxy");
         self.set_http(service)?;
 
         debug!("Setting bypass domains");
