@@ -354,7 +354,7 @@ fn parse_proxyauto_from_dict(cfd: &CFDictionary<CFString, CFType>) -> Result<Aut
         .and_then(|num| num.to_i32())
         .map(|v| v != 0)
         .unwrap_or(false);
-    let url = get_proxy_value(cfd, "ProxyAutoConfig RLString")
+    let url = get_proxy_value(cfd, "ProxyAutoConfigURLString")
         .and_then(|x| x.downcast::<CFString>().map(|s| s.to_string()))
         .unwrap_or_default();
 
