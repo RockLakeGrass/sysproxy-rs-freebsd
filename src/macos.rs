@@ -256,17 +256,15 @@ impl Autoproxy {
 
 #[inline]
 fn run_networksetup<'a>(args: &[&str]) -> Result<Cow<'a, str>> {
-    let mut command = Command::new("networksetup");
-    let outoput = command
+    let output = Command::new("networksetup")
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    let output = outoput.output()?;
-    let status = outoput.status()?;
+        .stderr(Stdio::null())
+        .output()?;
 
     let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
 
-    if !status.success() && stdout.contains("requires admin privileges") {
+    if !output.status.success() && stdout.contains("requires admin privileges") {
         log::error!(
             "Admin privileges required to run networksetup with args: {:?}, error: {}",
             args,
