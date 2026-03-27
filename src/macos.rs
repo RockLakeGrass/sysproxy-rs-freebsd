@@ -82,22 +82,20 @@ impl ProxyType {
 impl Sysproxy {
     #[inline]
     pub fn get_system_proxy() -> Result<Sysproxy> {
-        let service = get_active_network_service()?;
+        let service_uuid = get_active_network_service_uuid()?;
         let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
-        let service_id =
-            get_service_id_by_display_name(&scp, &service).ok_or(Error::NetworkInterface)?;
-        let proxies_dict = get_proxies_by_service_uuid(&scp, &service_id)?;
+        let proxies_dict = get_proxies_by_service_uuid(&scp, &service_uuid)?;
 
-        let mut socks = Sysproxy::get_socks(&service, Some(&proxies_dict))?;
+        let mut socks = parse_proxies_from_dict(&proxies_dict, ProxyType::Socks)?;
         debug!("Getting SOCKS proxy: {:?}", socks);
 
-        let http = Sysproxy::get_http(&service, Some(&proxies_dict))?;
+        let http = parse_proxies_from_dict(&proxies_dict, ProxyType::Http)?;
         debug!("Getting HTTP proxy: {:?}", http);
 
-        let https = Sysproxy::get_https(&service, Some(&proxies_dict))?;
+        let https = parse_proxies_from_dict(&proxies_dict, ProxyType::Https)?;
         debug!("Getting HTTPS proxy: {:?}", https);
 
-        let bypass = Sysproxy::get_bypass(&service, Some(&proxies_dict))?;
+        let bypass = parse_bypass_from_dict(&proxies_dict)?.join(",");
         debug!("Getting bypass domains: {:?}", bypass);
 
         socks.bypass = bypass;
