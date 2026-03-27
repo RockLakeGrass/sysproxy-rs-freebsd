@@ -290,8 +290,14 @@ fn set_proxy(proxy: &Sysproxy, proxy_type: ProxyType, service: &str) -> Result<(
 
 #[inline]
 fn set_bypass(proxy: &Sysproxy, service: &str) -> Result<()> {
-    let domains = proxy.bypass.split(",").collect::<Vec<_>>();
-    run_networksetup(&[["-setproxybypassdomains", service].to_vec(), domains].concat())?;
+    let mut args = vec!["-setproxybypassdomains", service];
+    let domains: Vec<&str> = if proxy.bypass.is_empty() {
+        Vec::new()
+    } else {
+        proxy.bypass.split(",").collect()
+    };
+    args.extend(&domains);
+    run_networksetup(&args)?;
     Ok(())
 }
 
