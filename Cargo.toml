@@ -1,6 +1,6 @@
 [package]
 name = "sysproxy"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2024"
 authors = ["zzzgydi"]
 license = "MIT"
@@ -44,6 +44,10 @@ criterion = "0.7"
 
 [[bench]]
 name = "macos_behavior"
+harness = false
+
+[[bench]]
+name = "windows_behavior"
 harness = false
 
 [features]
