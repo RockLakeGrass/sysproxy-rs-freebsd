@@ -2,7 +2,7 @@ use crate::{Autoproxy, Error, Result, Sysproxy};
 use log::debug;
 use std::{
     borrow::Cow,
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     str::from_utf8,
 };
 use system_configuration::{
@@ -14,6 +14,7 @@ use system_configuration::{
     network_configuration::SCNetworkService,
     sys::network_configuration::{
         SCNetworkProtocolGetConfiguration, SCNetworkServiceCopy, SCNetworkServiceCopyProtocol,
+        SCNetworkServiceGetName,
     },
     sys::preferences::{SCPreferencesLock, SCPreferencesUnlock},
 };
@@ -21,7 +22,7 @@ use system_configuration::{
     core_foundation::{
         base::{CFRelease, CFType, ItemRef},
         number::CFNumber,
-        string::CFString,
+        string::{CFString, CFStringRef},
     },
     dynamic_store::SCDynamicStoreBuilder,
 };
@@ -256,18 +257,43 @@ fn run_networksetup<'a>(args: &[&str]) -> Result<Cow<'a, str>> {
     let output = Command::new("networksetup")
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .output()?;
 
-    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+    parse_networksetup_output(args, output)
+}
 
-    if !output.status.success() && stdout.contains("requires admin privileges") {
+#[inline]
+fn parse_networksetup_output<'a>(args: &[&str], output: Output) -> Result<Cow<'a, str>> {
+    let stdout = from_utf8(&output.stdout).map_err(|_| Error::ParseStr("output".into()))?;
+    let stderr = from_utf8(&output.stderr).map_err(|_| Error::ParseStr("error output".into()))?;
+
+    if !output.status.success() {
+        let details = [stdout.trim(), stderr.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if details.contains("requires admin privileges") {
+            log::error!(
+                "Admin privileges required to run networksetup with args: {:?}, error: {}",
+                args,
+                details
+            );
+            return Err(Error::RequiresAdminPrivileges);
+        }
+
         log::error!(
-            "Admin privileges required to run networksetup with args: {:?}, error: {}",
+            "networksetup failed with args: {:?}, status: {}, error: {}",
             args,
-            stdout
+            output.status,
+            details
         );
-        return Err(Error::RequiresAdminPrivileges);
+        return Err(Error::NetworkSetup(format!(
+            "args={args:?}, status={}, error={details}",
+            output.status
+        )));
     }
 
     Ok(Cow::Owned(stdout.to_string()))
@@ -304,17 +330,27 @@ fn set_bypass(proxy: &Sysproxy, service: &str) -> Result<()> {
 fn get_active_network_service() -> Result<CFString> {
     let service_uuid = get_active_network_service_uuid()?;
     let scp = SCPreferences::default(&CFString::new("sysproxy-rs"));
-    let services = SCNetworkService::get_services(&scp);
-    for service in &services {
-        if let Some(uuid) = service.id()
-            && uuid == service_uuid
-            && let Some(interface) = service.network_interface()
-            && let Some(name) = interface.display_name()
-        {
-            return Ok(name);
+    unsafe {
+        let service_ref = SCNetworkServiceCopy(
+            scp.as_concrete_TypeRef(),
+            service_uuid.as_concrete_TypeRef(),
+        );
+        if service_ref.is_null() {
+            return Err(Error::NetworkInterface);
         }
+
+        let name = network_service_name_from_ptr(SCNetworkServiceGetName(service_ref));
+        CFRelease(service_ref);
+        name.ok_or(Error::NetworkInterface)
     }
-    Err(Error::NetworkInterface)
+}
+
+unsafe fn network_service_name_from_ptr(name: CFStringRef) -> Option<CFString> {
+    if name.is_null() {
+        None
+    } else {
+        Some(unsafe { CFString::wrap_under_get_rule(name) })
+    }
 }
 
 fn get_active_network_service_uuid() -> Result<CFString> {
@@ -570,6 +606,46 @@ fn parse_proxy_negative_port_zeroed() {
     let proxy = parse_proxies_from_dict(&dict, ProxyType::Http).unwrap();
     assert!(!proxy.enable);
     assert_eq!(proxy.port, 0);
+}
+
+#[test]
+fn network_service_name_from_ptr_preserves_trailing_space() {
+    let name = CFString::new("Wi-Fi ");
+    let service_name = unsafe { network_service_name_from_ptr(name.as_concrete_TypeRef()) }
+        .map(|name| name.to_string());
+
+    assert_eq!(service_name, Some("Wi-Fi ".to_string()));
+}
+
+#[test]
+fn networksetup_nonzero_exit_returns_error() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{ExitStatus, Output};
+
+    for (stdout, stderr) in [
+        (
+            b"** Error: The parameters were not valid.\n".to_vec(),
+            Vec::new(),
+        ),
+        (
+            Vec::new(),
+            b"** Error: The parameters were not valid.\n".to_vec(),
+        ),
+    ] {
+        let output = Output {
+            status: ExitStatus::from_raw(4 << 8),
+            stdout,
+            stderr,
+        };
+
+        let result = parse_networksetup_output(&["-setwebproxy", "Wi-Fi"], output);
+
+        assert!(matches!(
+            result,
+            Err(Error::NetworkSetup(message))
+                if message.contains("The parameters were not valid")
+        ));
+    }
 }
 
 #[test]
